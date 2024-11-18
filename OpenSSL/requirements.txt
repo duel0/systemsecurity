@@ -1,0 +1,4 @@
+pyopenssl
+endesive
+PyPDF2
+reportlab
