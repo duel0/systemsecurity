@@ -107,53 +107,52 @@ class Client:
             for page in pdf_reader.pages:
                 pdf_writer.add_page(page)
 
-            # Crea la firma visibile
             signature = BytesIO()
             c = canvas.Canvas(signature, pagesize=letter)
-            
-            # Imposta le coordinate
-            x_start = 350
-            y_start = 700
+
+            # Dimensioni del riquadro
             box_width = 250
             box_height = 100
 
-            # Assicurati che il canvas sia pulito
+            # Posizione del riquadro in basso a destra
+            x_start = 612 - box_width - 20  # Margine destro
+            y_start = 20  # Margine inferiore
+
+            # Creare il rettangolo bianco con sfondo opaco
             c.saveState()
-            
-            # Crea un rettangolo bianco come sfondo
-            c.setFillColorRGB(1, 1, 1)  # Bianco
-            c.setStrokeColorRGB(0.1, 0.4, 0.7)  # Blu scuro per il bordo
+            c.setFillColorRGB(1, 1, 1)  # Colore bianco per sfondo
+            c.setStrokeColorRGB(0.1, 0.4, 0.7)  # Blu scuro per bordo
             c.setLineWidth(2)
-            c.rect(x_start, y_start, box_width, box_height, fill=True, stroke=True)
+            c.rect(x_start, y_start, box_width, box_height, fill=True, stroke=True)  # Riempire con bianco
 
             # Linea decorativa
-            c.setStrokeColorRGB(0.1, 0.4, 0.7)
-            c.line(x_start + 10, y_start + 80, x_start + box_width - 10, y_start + 80)
+            c.setStrokeColorRGB(0.1, 0.4, 0.7)  # Blu
+            c.line(x_start + 10, y_start + box_height - 20, x_start + box_width - 10, y_start + box_height - 20)
 
-            # Imposta il font e il colore per il testo
-            c.setFillColorRGB(0, 0, 0)  # Nero puro per il testo
-            
-            # Titolo
-            c.setFont("Helvetica-Bold", 18)
-            c.drawString(x_start + 10, y_start + 85, "System Security")
-            
-            # Informazioni del firmatario
-            c.setFont("Helvetica", 14)
-            y_offset = 50
-            c.drawString(x_start + 10, y_start + y_offset, f"Firmato da: {cert.get_subject().CN}")
-            y_offset -= 20
-            c.drawString(x_start + 10, y_start + y_offset, f"Email: {cert.get_subject().emailAddress}")
-            y_offset -= 20
+            # Impostare il colore del testo
+            c.setFillColorRGB(0, 0, 0)  # Nero
+
+            # Aggiungere il testo sopra il rettangolo
+            c.setFont("Helvetica-Bold", 12)  # Font più piccolo per evitare sovrapposizioni
+            c.drawString(x_start + 10, y_start + box_height - 15, "System Security")
+
+            c.setFont("Helvetica", 10)  # Font normale per i dettagli
+            y_offset = box_height - 40
+            c.drawString(x_start + 10, y_start + y_offset, "Firmato da: Nome Firmatario")
+            y_offset -= 15
+            c.drawString(x_start + 10, y_start + y_offset, "Email: email@example.com")
+            y_offset -= 15
             c.drawString(x_start + 10, y_start + y_offset, f"Data: {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}")
 
             c.restoreState()
             c.save()
 
-            # Crea watermark con la firma
+            # Creare il watermark con la firma
+            signature.seek(0)
             watermark = PyPDF2.PdfReader(signature)
             page = pdf_writer.pages[0]
-            
-            # Assicurati che il watermark venga applicato sopra il contenuto esistente
+
+            # Applicare il watermark sopra il contenuto esistente
             page.merge_page(watermark.pages[0])
 
             # Salva il PDF firmato
