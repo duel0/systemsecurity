@@ -6,9 +6,13 @@ from cryptography.x509.oid import NameOID
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import rsa
 import PyPDF2
+from getpass import getpass
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 from io import BytesIO
+from IntermediateCA import IntermediateCA
+from key_security import KeySecurityManager
+
 
 class Client:
     def __init__(self):
@@ -21,6 +25,8 @@ class Client:
         self.KEY_FILE = "client.key"
         self.CERT_FILE = "client.crt"
         self.P12_FILE = "client.p12"
+        self.intermediate_ca = IntermediateCA()
+        self.key_manager = KeySecurityManager()
 
     def create_client_certificate(self, force=False):
         if not force and os.path.exists(self.KEY_FILE) and os.path.exists(self.CERT_FILE):
@@ -35,13 +41,21 @@ class Client:
             # Carica Intermediate CA
             with open(self.INT_CA_CERT, 'rb') as f:
                 int_ca_cert = crypto.load_certificate(crypto.FILETYPE_PEM, f.read())
-            with open("intermediate_ca.key", 'rb') as f:
-                int_ca_key = crypto.load_privatekey(crypto.FILETYPE_PEM, f.read())
-
+            
+            int_ca_key = self.intermediate_ca.get_intermediate_key()
             # Crea certificato
             cert = crypto.X509()
             cert.get_subject().CN = input("Inserisci il tuo nome completo: ")
             cert.get_subject().emailAddress = input("Inserisci la tua email: ")
+            
+            # Gestione del ruolo
+            while True:
+                ruolo = input("Inserisci il tuo ruolo (Docente/Studente): ").capitalize()
+                if ruolo in ["Docente", "Studente"]:
+                    cert.get_subject().title = ruolo
+                    break
+                print("Ruolo non valido. Inserisci 'Docente' o 'Studente'.")
+            
             cert.get_subject().O = "Università degli Studi di Napoli Federico II"
             cert.get_subject().C = "IT"
             
@@ -56,14 +70,27 @@ class Client:
                 crypto.X509Extension(b"basicConstraints", True, b"CA:FALSE"),
                 crypto.X509Extension(b"keyUsage", True, b"digitalSignature, nonRepudiation, keyEncipherment"),
                 crypto.X509Extension(b"extendedKeyUsage", False, b"clientAuth, emailProtection"),
+                # Aggiungiamo un'estensione custom per il ruolo in modo corretto
+                crypto.X509Extension(b"nsComment", False, ruolo.encode())
             ])
 
             # Firma il certificato con la CA intermedia
             cert.sign(int_ca_key, 'sha256')
 
-            # Salva chiave privata
-            with open(self.KEY_FILE, "wb") as f:
-                f.write(crypto.dump_privatekey(crypto.FILETYPE_PEM, key))
+            # Ottieni la password per proteggere la chiave
+            while True:
+                password = getpass("Inserisci la password per proteggere la chiave del certificato: ")
+                confirm_password = getpass("Conferma la password: ")
+                
+                if password == confirm_password:
+                    break
+                print("Le password non coincidono. Riprova.")
+
+            # Salva la chiave privata in modo sicuro
+            key_data = crypto.dump_privatekey(crypto.FILETYPE_PEM, key)
+            if not self.key_manager.protect_key("client_cert", key_data, password):
+                print("Errore durante il salvataggio sicuro della chiave!")
+                return False
 
             # Salva certificato
             with open(self.CERT_FILE, "wb") as f:
@@ -77,27 +104,41 @@ class Client:
             import traceback
             traceback.print_exc()
             return False
+        
+
+    def get_client_key(self):
+        """Recupera la chiave privata dal gestore sicuro"""
+        password = getpass("Inserisci la password del Client: ")
+        key_data = self.key_manager.retrieve_key("client_cert", password)
+        
+        if key_data:
+            return crypto.load_privatekey(crypto.FILETYPE_PEM, key_data)
+        return None
 
     def sign_pdf(self):
-        if not os.path.exists(self.CERT_FILE) or not os.path.exists(self.KEY_FILE):
+        if not os.path.exists(self.CERT_FILE):
             print("Certificato client non trovato. Crealo prima.")
             return False
 
         try:
+            # Carica certificato e verifica il ruolo
+            with open(self.CERT_FILE, 'rb') as f:
+                cert_data = f.read()
+                cert = crypto.load_certificate(crypto.FILETYPE_PEM, cert_data)
+            
+            # Verifica il ruolo dal certificato
+            role = cert.get_subject().title
+            if role != "Docente":
+                print("Solo i docenti possono firmare i documenti.")
+                return False
+            
             # Input file
             pdf_file = input("Inserisci il path del PDF da firmare: ")
             if not os.path.exists(pdf_file):
                 print("File non trovato!")
                 return False
 
-            # Carica certificato e chiave
-            with open(self.CERT_FILE, 'rb') as f:
-                cert_data = f.read()
-                cert = crypto.load_certificate(crypto.FILETYPE_PEM, cert_data)
-            
-            with open(self.KEY_FILE, 'rb') as f:
-                key_data = f.read()
-                key = crypto.load_privatekey(crypto.FILETYPE_PEM, key_data)
+            key = self.get_client_key()
 
             # Leggi il PDF originale
             pdf_reader = PyPDF2.PdfReader(pdf_file)
@@ -133,14 +174,18 @@ class Client:
             c.setFillColorRGB(0, 0, 0)  # Nero
 
             # Aggiungere il testo sopra il rettangolo
-            c.setFont("Helvetica-Bold", 12)  # Font più piccolo per evitare sovrapposizioni
+            c.setFont("Helvetica-Bold", 12)
             c.drawString(x_start + 10, y_start + box_height - 15, "System Security")
 
-            c.setFont("Helvetica", 10)  # Font normale per i dettagli
+            # Ottenere i dati del firmatario dal certificato
+            firmatario = cert.get_subject().CN
+            email = cert.get_subject().emailAddress
+
+            c.setFont("Helvetica", 10)
             y_offset = box_height - 40
-            c.drawString(x_start + 10, y_start + y_offset, "Firmato da: Nome Firmatario")
+            c.drawString(x_start + 10, y_start + y_offset, f"Firmato da: {firmatario}")
             y_offset -= 15
-            c.drawString(x_start + 10, y_start + y_offset, "Email: email@example.com")
+            c.drawString(x_start + 10, y_start + y_offset, f"Email: {email}")
             y_offset -= 15
             c.drawString(x_start + 10, y_start + y_offset, f"Data: {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}")
 

@@ -1,138 +1,105 @@
 from OpenSSL import crypto
 import datetime
 import os
+from getpass import getpass
+from key_security import KeySecurityManager
+from RootCA import RootCA
 
 class IntermediateCA:
     def __init__(self):
-        self.KEY_FILE = "intermediate_ca.key"
         self.CERT_FILE = "intermediate_ca.crt"
-        self.CSR_FILE = "intermediate_ca.csr"
-        self.ROOT_CA_CERT = "root_ca.crt"
-        self.ROOT_CA_KEY = "root_ca.key"
         self.KEY_SIZE = 4096
         self.VALID_YEARS = 5
+        self.key_manager = KeySecurityManager()
+        self.root_ca = RootCA()
 
     def create_intermediate_ca(self, force=False):
-        # Verifica esistenza Root CA
-        if not os.path.exists(self.ROOT_CA_CERT) or not os.path.exists(self.ROOT_CA_KEY):
-            print("Root CA non trovata! Crea prima la Root CA.")
-            return False
-
         # Controlla se i file esistono già
-        if not force and os.path.exists(self.KEY_FILE) and os.path.exists(self.CERT_FILE):
+        if not force and os.path.exists(self.CERT_FILE) and self.key_manager.key_exists("intermediate_ca"):
             print("Intermediate CA già esistente. Usa force=True per rigenerare.")
             return False
 
-        try:
-            # Genera chiave privata per Intermediate CA
-            key = crypto.PKey()
-            key.generate_key(crypto.TYPE_RSA, self.KEY_SIZE)
-
-            # Crea CSR (Certificate Signing Request)
-            req = crypto.X509Req()
-            subject = req.get_subject()
-            subject.CN = "Intermediate CA"
-            subject.O = "My PKI"
-            subject.C = "IT"
-
-            req.set_pubkey(key)
-            req.sign(key, 'sha512')
-
-            # Carica Root CA
-            with open(self.ROOT_CA_CERT, 'rb') as f:
-                root_cert = crypto.load_certificate(crypto.FILETYPE_PEM, f.read())
-            with open(self.ROOT_CA_KEY, 'rb') as f:
-                root_key = crypto.load_privatekey(crypto.FILETYPE_PEM, f.read())
-
-            # Crea certificato per Intermediate CA
-            cert = crypto.X509()
-            cert.set_version(2)
-            cert.set_serial_number(2)  # Differente dalla Root CA
-            
-            cert.gmtime_adj_notBefore(0)
-            cert.gmtime_adj_notAfter(self.VALID_YEARS * 365 * 24 * 60 * 60)
-            
-            cert.set_issuer(root_cert.get_subject())  # Issuer è la Root CA
-            cert.set_subject(req.get_subject())
-            cert.set_pubkey(req.get_pubkey())
-
-            # Aggiungi estensioni
-            extensions = [
-                crypto.X509Extension(b"basicConstraints", True, b"CA:TRUE, pathlen:0"),
-                crypto.X509Extension(b"keyUsage", True, b"keyCertSign, cRLSign"),
-                crypto.X509Extension(b"subjectKeyIdentifier", False, b"hash", subject=cert),
-                crypto.X509Extension(b"authorityKeyIdentifier", False, b"keyid:always", issuer=root_cert)
-            ]
-            
-            cert.add_extensions(extensions)
-
-            # Firma con la Root CA
-            cert.sign(root_key, 'sha512')
-
-            # Salva chiave privata
-            with open(self.KEY_FILE, "wb") as f:
-                f.write(crypto.dump_privatekey(crypto.FILETYPE_PEM, key))
-
-            # Salva CSR (opzionale, ma utile per debug)
-            with open(self.CSR_FILE, "wb") as f:
-                f.write(crypto.dump_certificate_request(crypto.FILETYPE_PEM, req))
-
-            # Salva certificato
-            with open(self.CERT_FILE, "wb") as f:
-                f.write(crypto.dump_certificate(crypto.FILETYPE_PEM, cert))
-
-            print("Intermediate CA creata con successo!")
-            return True
-
-        except Exception as e:
-            print(f"Errore durante la creazione dell'Intermediate CA: {str(e)}")
+        # Verifica l'esistenza della Root CA
+        if not os.path.exists(self.root_ca.CERT_FILE):
+            print("Root CA non trovata! Crea prima la Root CA.")
             return False
 
-    def verify_chain(self):
-        try:
-            # Carica certificati
-            with open(self.CERT_FILE, 'rb') as f:
-                int_cert = crypto.load_certificate(crypto.FILETYPE_PEM, f.read())
-            with open(self.ROOT_CA_CERT, 'rb') as f:
-                root_cert = crypto.load_certificate(crypto.FILETYPE_PEM, f.read())
-
-            # Crea store per la verifica
-            store = crypto.X509Store()
-            store.add_cert(root_cert)
-            
-            # Crea contesto di verifica
-            store_ctx = crypto.X509StoreContext(store, int_cert)
-            
-            # Verifica la catena
-            store_ctx.verify_certificate()
-            
-            print("\n=== CATENA DEI CERTIFICATI ===")
-            print("\n[Certificato 1 - Intermediate CA]")
-            print(f"Subject: {int_cert.get_subject().CN}")
-            print(f"Issuer: {int_cert.get_issuer().CN}")
-            print(f"Serial: {int_cert.get_serial_number()}")
-            print(f"Validità: {datetime.datetime.strptime(int_cert.get_notBefore().decode('ascii'), '%Y%m%d%H%M%SZ')} -> "
-                f"{datetime.datetime.strptime(int_cert.get_notAfter().decode('ascii'), '%Y%m%d%H%M%SZ')}")
-            
-            print("\n[Certificato 2 - Root CA]")
-            print(f"Subject: {root_cert.get_subject().CN}")
-            print(f"Issuer: {root_cert.get_issuer().CN}")
-            print(f"Serial: {root_cert.get_serial_number()}")
-            print(f"Validità: {datetime.datetime.strptime(root_cert.get_notBefore().decode('ascii'), '%Y%m%d%H%M%SZ')} -> "
-                f"{datetime.datetime.strptime(root_cert.get_notAfter().decode('ascii'), '%Y%m%d%H%M%SZ')}")
-            
-            print("\nVerifica della catena completata con successo!")
-            
-            # Verifica relazioni
-            print("\n=== VERIFICA RELAZIONI ===")
-            print(f"Intermediate CA emesso da: {int_cert.get_issuer().CN}")
-            print(f"Root CA è self-signed: {root_cert.get_issuer().CN == root_cert.get_subject().CN}")
-            
-            return True
-                
-        except Exception as e:
-            print(f"Errore nella verifica della catena: {str(e)}")
+        # Ottieni la chiave privata della Root CA
+        root_key = self.root_ca.get_root_key()
+        if not root_key:
+            print("Impossibile accedere alla chiave della Root CA!")
             return False
+
+        # Carica il certificato della Root CA
+        with open(self.root_ca.CERT_FILE, 'rb') as f:
+            root_cert = crypto.load_certificate(crypto.FILETYPE_PEM, f.read())
+
+        # Genera chiave privata per Intermediate CA
+        key = crypto.PKey()
+        key.generate_key(crypto.TYPE_RSA, self.KEY_SIZE)
+
+        # Crea certificato
+        cert = crypto.X509()
+        
+        # Imposta subject
+        subject = cert.get_subject()
+        subject.CN = "Intermediate CA"
+        subject.O = "My PKI"
+        subject.C = "IT"
+
+        # Imposta validità
+        cert.gmtime_adj_notBefore(0)
+        cert.gmtime_adj_notAfter(self.VALID_YEARS * 365 * 24 * 60 * 60)
+        
+        # Imposta altri campi
+        cert.set_version(2)  # X509v3
+        cert.set_serial_number(1000)  # Diverso dalla Root CA
+        cert.set_issuer(root_cert.get_subject())  # Emesso dalla Root CA
+        cert.set_pubkey(key)
+
+        # Aggiungi estensioni
+        extensions = [
+            crypto.X509Extension(b"basicConstraints", True, b"CA:TRUE, pathlen:0"),
+            crypto.X509Extension(b"keyUsage", True, b"keyCertSign, cRLSign"),
+            crypto.X509Extension(b"subjectKeyIdentifier", False, b"hash", subject=cert),
+            crypto.X509Extension(b"authorityKeyIdentifier", False, b"keyid:always", issuer=root_cert)
+        ]
+        
+        cert.add_extensions(extensions)
+
+        # Firma il certificato con la Root CA
+        cert.sign(root_key, 'sha512')
+
+        # Ottieni la password per proteggere la chiave
+        while True:
+            password = getpass("Inserisci la password per proteggere la chiave Intermediate CA: ")
+            confirm_password = getpass("Conferma la password: ")
+            
+            if password == confirm_password:
+                break
+            print("Le password non coincidono. Riprova.")
+
+        # Salva la chiave privata in modo sicuro
+        key_data = crypto.dump_privatekey(crypto.FILETYPE_PEM, key)
+        if not self.key_manager.protect_key("intermediate_ca", key_data, password):
+            print("Errore durante il salvataggio sicuro della chiave!")
+            return False
+
+        # Salva certificato
+        with open(self.CERT_FILE, "wb") as f:
+            f.write(crypto.dump_certificate(crypto.FILETYPE_PEM, cert))
+
+        print("Intermediate CA creata con successo!")
+        return True
+
+    def get_intermediate_key(self):
+        """Recupera la chiave privata dal gestore sicuro"""
+        password = getpass("Inserisci la password della Intermediate CA: ")
+        key_data = self.key_manager.retrieve_key("intermediate_ca", password)
+        
+        if key_data:
+            return crypto.load_privatekey(crypto.FILETYPE_PEM, key_data)
+        return None
 
     def display_certificate_info(self):
         if not os.path.exists(self.CERT_FILE):
@@ -157,30 +124,78 @@ class IntermediateCA:
             ext = cert.get_extension(i)
             print(f"{ext.get_short_name().decode('utf-8')}: {ext.__str__()}")
 
-if __name__ == "__main__":
-    int_ca = IntermediateCA()
+    def verify_certificate_chain(self):
+        """Verifica la catena di certificati"""
+        if not os.path.exists(self.CERT_FILE) or not os.path.exists(self.root_ca.CERT_FILE):
+            print("Certificati mancanti!")
+            return False
+
+        try:
+            # Crea store per la verifica
+            store = crypto.X509Store()
+            
+            # Carica e aggiungi Root CA allo store
+            with open(self.root_ca.CERT_FILE, 'rb') as f:
+                root_cert = crypto.load_certificate(crypto.FILETYPE_PEM, f.read())
+                store.add_cert(root_cert)
+
+            # Carica certificato Intermediate CA
+            with open(self.CERT_FILE, 'rb') as f:
+                intermediate_cert = crypto.load_certificate(crypto.FILETYPE_PEM, f.read())
+
+            # Crea contesto di verifica
+            store_ctx = crypto.X509StoreContext(store, intermediate_cert)
+            
+            # Verifica
+            store_ctx.verify_certificate()
+            return True
+            
+        except crypto.X509StoreContextError as e:
+            print(f"Errore nella verifica: {str(e)}")
+            return False
+        except Exception as e:
+            print(f"Errore generico: {str(e)}")
+            return False
+
+def main():
+    intermediate_ca = IntermediateCA()
     
     while True:
         print("\nIntermediate CA Manager")
         print("1. Crea Intermediate CA")
         print("2. Visualizza informazioni certificato")
-        print("3. Verifica catena certificati")
-        print("4. Ricrea Intermediate CA (forza rigenerazione)")
-        print("5. Esci")
+        print("3. Ricrea Intermediate CA (forza rigenerazione)")
+        print("4. Verifica accesso alla chiave privata")
+        print("5. Verifica catena di certificati")
+        print("6. Esci")
         
         scelta = input("\nScegli un'opzione: ")
         
         if scelta == "1":
-            int_ca.create_intermediate_ca()
+            intermediate_ca.create_intermediate_ca()
         elif scelta == "2":
-            int_ca.display_certificate_info()
+            intermediate_ca.display_certificate_info()
         elif scelta == "3":
-            int_ca.verify_chain()
+            intermediate_ca.create_intermediate_ca(force=True)
         elif scelta == "4":
-            int_ca.create_intermediate_ca(force=True)
+            key = intermediate_ca.get_intermediate_key()
+            if key:
+                print("Accesso alla chiave privata riuscito!")
+            else:
+                print("Impossibile accedere alla chiave privata!")
         elif scelta == "5":
+            if intermediate_ca.verify_certificate_chain():
+                print("Verifica della catena di certificati completata con successo!")
+            else:
+                print("Verifica della catena di certificati fallita!")
+        elif scelta == "6":
             break
         else:
             print("Opzione non valida!")
 
+        input("\nPremi INVIO per continuare...")
+
     print("Programma terminato.")
+
+if __name__ == "__main__":
+    main()
