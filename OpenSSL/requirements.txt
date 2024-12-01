@@ -2,3 +2,4 @@ pyopenssl
 endesive
 PyPDF2
 reportlab
+keyring
