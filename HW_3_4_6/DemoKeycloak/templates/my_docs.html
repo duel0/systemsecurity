@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Documents</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles/my_docs.css') }}">
+</head>
+<body>
+    <!--
+        Vorrei che al click su un determinato documento, accada
+        @app.route('/download_doc/<int:doc_id>')
+        def download_doc(doc_id):
+            username = session['user']['username']
+            doc = doc_service.get_document(doc_id, username)
+            return doc['content']
+
+        e che il documento venga scaricato
+
+    -->
+
+
+    <div class="container">
+        <h1>Welcome, {{ username }}</h1>
+        <div class="docs-list">
+            {% if documents %}
+                {% for doc in documents %}
+                <div class="doc-card">
+                    <h2>{{ doc[1] }}</h2>
+                    <p><strong>Size:</strong> {{ doc[2] }} KB</p>
+                    <p><strong>Created:</strong> {{ doc[3] }}</p>
+                    <p><strong>Shared:</strong> {{ "Yes" if doc.shared else "No" }}</p>
+                    <a href="{{ url_for('download_doc', doc_id=doc[0]) }}">Download</a>
+                </div>
+                {% endfor %}
+            {% else %}
+                <p>No documents found.</p>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>

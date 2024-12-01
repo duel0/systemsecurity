@@ -1,0 +1,10 @@
+1) Configurazione PC 
+
+- Scaricare Docker Desktop al sito {https://docs.docker.com/desktop/setup/install/windows-install/} (l'exe x86_64) ed eseguirlo
+- Installare Windows Subsystem for Linux (WSL). Su una powershell, eseguire il comando {wsl --install} (Windows 11).
+- Nel caso di versioni precedenti di Windows, seguire la guida al sito {https://learn.microsoft.com/en-us/windows/wsl/install-manual}.
+- Dal prompt dei comandi, eseguire il comando {bash} per aprire una shell wsl.
+- Aggiornare i pacchetti della wsl con {sudo apt update && sudo apt upgrade} e isntallare python3 {sudo apt-get install python3} e pip {sudo apt install python3-pip}.
+- Creare una repo di progetto
+- Navigare nella repo mediante la wsl e creare un ambiente virtuale python col comando {python3 -m venv .venv}. Il percorso della repo di progetto, se creata sul desktop, dovrebbe essere "/mnt/c/Users/{utente}/Desktop/{NomeRepo}".
+- Installare i pacchetti python che si trovano nel file requirements.txt {pip install -r requirements.txt}.

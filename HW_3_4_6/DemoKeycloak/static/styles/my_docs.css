@@ -1,0 +1,54 @@
+body {
+    font-family: Arial, sans-serif;
+    background-color: #f4f4f4;
+    color: #333;
+    margin: 0;
+    padding: 0;
+}
+
+.container {
+    max-width: 800px;
+    margin: 20px auto;
+    padding: 20px;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+h1 {
+    text-align: center;
+    color: #555;
+}
+
+.docs-list {
+    margin-top: 20px;
+}
+
+.doc-card {
+    padding: 15px;
+    margin: 10px 0;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    background-color: #f9f9f9;
+    transition: box-shadow 0.3s ease;
+}
+
+.doc-card:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.doc-card h2 {
+    margin: 0;
+    font-size: 18px;
+    color: #444;
+}
+
+.doc-card p {
+    margin: 5px 0;
+    color: #666;
+}
+
+p {
+    text-align: center;
+    color: #888;
+}
