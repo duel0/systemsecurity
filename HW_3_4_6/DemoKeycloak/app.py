@@ -1,4 +1,4 @@
-from flask import Flask, redirect, url_for, session, request, render_template
+from flask import Flask, redirect, url_for, session, request, render_template, flash
 
 from flask_session import Session           # per gestire le sessioni lato flask
 
@@ -21,18 +21,21 @@ Session(app)
 
 conn = psycopg2.connect(
     dbname="docsecure",
-    user="v-root-app-role-NnuyKHG89Jw3kSTF9ev8-1733060018",  # username da Vault
-    password="FO6OlymmO2g0-5uSSSwV",              # password da Vault
-    host="localhost"
+    user="v-root-app-role-rtRU1TNEOEwzURIf46bN-1733073610",  # username da Vault
+    password="tuih24s4n3AO8z1dnh-u",              # password da Vault
+    host="localhost",
+    sslmode="disable",
+    gsslib=None
 )
 
 # Inizializza il service
 # vault server -dev
 doc_service = DocumentService(
     vault_url='http://127.0.0.1:8200',
-    vault_token='hvs.aeWWI9pAXNcCT1oytaU9kSVk',
+    vault_token='hvs.WBj3FejokPtLxXeW0vzLZDbr',
     db_connection=conn
 )
+
 
 logging.basicConfig(level=logging.DEBUG)  # Basic logging configuration
 
@@ -261,6 +264,31 @@ def download_doc(doc_id):
     with open(f'/Users/balassone/Downloads/{doc_id}.pdf', 'wb') as f:
         f.write(doc['content'])
     return redirect(url_for('my_docs'))
+
+### DA TESTARE
+
+@app.route('/upload', methods=['GET', 'POST'])
+def upload():
+    if request.method == 'POST':
+        # Check if a file is included in the request
+        if 'file' not in request.files or request.files['file'].filename == '':
+            flash('No file selected.')
+            return redirect(request.url)
+        
+        file = request.files['file']
+        filename = file.filename
+        content = file.read()
+        username = session['user']['username']  # Assuming session contains user data
+        
+        try:
+            doc_service.store_document(filename, content, username)
+            flash('Document uploaded successfully!')
+            return redirect('/my_docs')
+        except Exception as e:
+            flash(f"Error uploading document: {str(e)}")
+            return redirect(request.url)
+    return render_template('upload.html')
+
 
     
 

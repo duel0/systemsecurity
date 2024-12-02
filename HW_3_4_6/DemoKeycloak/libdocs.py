@@ -117,7 +117,7 @@ class DocumentService:
 
 # Connessione al DB (usando le credenziali generate da Vault)
 # vault read database/creds/app-role
-
+'''
 conn = psycopg2.connect(
     dbname="docsecure",
     user="v-root-app-role-7VWoNs5RQFzAzGCExics-1733053165",  # username da Vault
@@ -132,6 +132,7 @@ doc_service = DocumentService(
     vault_token='hvs.SHX8pREMTW8megySRcEq3y4r',
     db_connection=conn
 )
+'''
 '''
 # Esempio: salva un documento
 with open('ciao.pdf', 'rb') as f:

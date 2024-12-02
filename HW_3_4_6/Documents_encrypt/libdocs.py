@@ -120,23 +120,25 @@ class DocumentService:
 
 conn = psycopg2.connect(
     dbname="docsecure",
-    user="v-root-app-role-7VWoNs5RQFzAzGCExics-1733053165",  # username da Vault
-    password="cFu8l7El-QHenqxbeRTk",              # password da Vault
-    host="localhost"
+    user="v-root-app-role-rtRU1TNEOEwzURIf46bN-1733073610",  # username da Vault
+    password="tuih24s4n3AO8z1dnh-u",              # password da Vault
+    host="localhost",
+    sslmode="disable",
+    gsslib=None
 )
 
 # Inizializza il service
 # vault server -dev
 doc_service = DocumentService(
     vault_url='http://127.0.0.1:8200',
-    vault_token='hvs.SHX8pREMTW8megySRcEq3y4r',
+    vault_token='hvs.WBj3FejokPtLxXeW0vzLZDbr',
     db_connection=conn
 )
 
 # Esempio: salva un documento
 with open('ciao.pdf', 'rb') as f:
     content = f.read()
-    doc_id = doc_service.store_document('ciao2.pdf', content, 'alfredo')
+    doc_id = doc_service.store_document('ciaooz.pdf', content, 'alfredo')
 
 # Esempio: recupera un documento
 doc = doc_service.get_document(doc_id, 'alfredo')
