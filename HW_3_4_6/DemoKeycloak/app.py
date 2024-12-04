@@ -21,8 +21,8 @@ Session(app)
 
 conn = psycopg2.connect(
     dbname="docsecure",
-    user="v-root-app-role-rtRU1TNEOEwzURIf46bN-1733073610",  # username da Vault
-    password="tuih24s4n3AO8z1dnh-u",              # password da Vault
+    user="v-root-app-role-PWPZ4v2x4w5oF1sSfeJQ-1733256740",  # username da Vault
+    password="jpvvVQAPYB1-vEmEQ1Pb",              # password da Vault
     host="localhost",
     sslmode="disable",
     gsslib=None
@@ -32,7 +32,7 @@ conn = psycopg2.connect(
 # vault server -dev
 doc_service = DocumentService(
     vault_url='http://127.0.0.1:8200',
-    vault_token='hvs.WBj3FejokPtLxXeW0vzLZDbr',
+    vault_token='hvs.wezU1GaPdUED6RcapAPJIFHi',
     db_connection=conn
 )
 
@@ -54,7 +54,7 @@ def index():
     msg=''
     if session.get('user') != None:
         username=session['user']['username']
-        msg = f"Welcome {username} !"   # Se c'è un utente loggato, ne mostra lo username
+        msg = f"Benvenuto, {username}!"   # Se c'è un utente loggato, ne mostra lo username
 
     return render_template('index.html', welcome_msg=msg)
 
@@ -233,15 +233,24 @@ def get_user_roles():
 #  a questa pagina è possibile accedere soltanto se si ha ruolo "AdminRole". 
 @app.route('/protected')
 def admin_page():
+    if 'user' not in session:
+        return "Access Denied: you are not logged in.", 403
+    
+    username = session['user']['username']
     roles = get_user_roles()
     logging.debug(f"Roles: {roles}")
 
     # verifico il ruolo dell'utente
     if 'AdminRole' in roles:
-        return render_template('admin_page.html', role='AdminRole')
+        documents = doc_service.list_all_documents()
+        print(documents)
+        return render_template('all_docs.html', username=username, documents=documents)
     
     else:
         return "Access Denied: you are not an admin.", 403
+
+
+    
     
 
 
@@ -249,45 +258,76 @@ def admin_page():
 
 @app.route('/my_docs')
 def my_docs():
+    if 'user' not in session:
+        return "Access Denied: you are not logged in.", 403
     username = session['user']['username']  # Assuming session['user'] contains 'username'
-    documents = doc_service.list_documents(username)
-    print(documents)
-    return render_template('my_docs.html', username=username, documents=documents)
-# Vorrei che al click su un documento si possa scaricare il file usando doc_service.get_document(doc_id, username)
-# e visualizzare il contenuto del file (in chiaro) nella pagina
+    roles = get_user_roles()
+    logging.debug(f"Roles: {roles}")
+
+    # verifico il ruolo dell'utente
+    if 'UserRole' in roles or 'AdminRole' in roles:
+        documents = doc_service.list_documents(username)
+        print(documents)
+        return render_template('my_docs.html', username=username, documents=documents)
+
+
+@app.route('/shared')
+def shared():
+    if 'user' not in session:
+        return "Access Denied: you are not logged in.", 403
+    roles = get_user_roles()
+    logging.debug(f"Roles: {roles}")
+    if 'UserRole' in roles or 'AdminRole' in roles:
+        username = session['user']['username']  
+        documents = doc_service.list_shared_documents()
+        print(documents)
+        return render_template('shared_docs.html', username=username, documents=documents)
+
 
 @app.route('/download_doc/<int:doc_id>')
 def download_doc(doc_id):
-    username = session['user']['username']
-    doc = doc_service.get_document(doc_id, username)
-    # come faccio a salvare doc in un file e poi farlo scaricare?
-    with open(f'/Users/balassone/Downloads/{doc_id}.pdf', 'wb') as f:
-        f.write(doc['content'])
-    return redirect(url_for('my_docs'))
+    if 'user' not in session:
+        return "Access Denied: you are not logged in.", 403
+    roles = get_user_roles()
+    logging.debug(f"Roles: {roles}")
+    if 'UserRole' in roles or 'AdminRole' in roles:
+        username = session['user']['username']
+        doc = doc_service.get_document(doc_id, username)
+        # come faccio a salvare doc in un file e poi farlo scaricare?
+        with open(f'/Users/balassone/Downloads/{doc_id}.pdf', 'wb') as f:
+            f.write(doc['content'])
+        return redirect(url_for('my_docs'))
 
 ### DA TESTARE
 
 @app.route('/upload', methods=['GET', 'POST'])
 def upload():
-    if request.method == 'POST':
-        # Check if a file is included in the request
-        if 'file' not in request.files or request.files['file'].filename == '':
-            flash('No file selected.')
-            return redirect(request.url)
-        
-        file = request.files['file']
-        filename = file.filename
-        content = file.read()
-        username = session['user']['username']  # Assuming session contains user data
-        
-        try:
-            doc_service.store_document(filename, content, username)
-            flash('Document uploaded successfully!')
-            return redirect('/my_docs')
-        except Exception as e:
-            flash(f"Error uploading document: {str(e)}")
-            return redirect(request.url)
-    return render_template('upload.html')
+    if 'user' not in session:
+        return "Access Denied: you are not logged in.", 403
+    roles = get_user_roles()
+    logging.debug(f"Roles: {roles}")
+    if 'UserRole' in roles or 'AdminRole' in roles:
+        if request.method == 'POST':
+            # Check if a file is included in the request
+            if 'file' not in request.files or request.files['file'].filename == '':
+                flash('No file selected.')
+                return redirect(request.url)
+            
+            file = request.files['file']
+            filename = file.filename
+            content = file.read()
+            username = session['user']['username']  # Assuming session contains user data
+
+            # Determine if the document is shared
+            shared = 'shared' in request.form and request.form['shared'] == 'on'
+            try:
+                doc_service.store_document(filename, content, username, shared=shared)
+                flash('Document uploaded successfully!')
+                return redirect('/my_docs')
+            except Exception as e:
+                flash(f"Error uploading document: {str(e)}")
+                return redirect(request.url)
+        return render_template('upload.html')
 
 
     

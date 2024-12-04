@@ -106,6 +106,16 @@ class DocumentService:
             """, (user,))
             return cur.fetchall()
         
+    def list_shared_documents(self, user):
+        with self.db_connection.cursor() as cur:
+            cur.execute("""
+                SELECT id, filename, file_size, created_at, shared 
+                FROM documents 
+                WHERE shared = true
+                ORDER BY created_at DESC
+            """)
+            return cur.fetchall()
+        
         '''cur.execute("""
                 SELECT id, filename, file_size, created_at, shared 
                 FROM documents 

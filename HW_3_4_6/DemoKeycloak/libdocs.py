@@ -33,21 +33,26 @@ class DocumentService:
         # Decodifica da base64
         return base64.b64decode(decrypt_data['data']['plaintext'])
 
-    def store_document(self, filename, content, owner):
+    def store_document(self, filename, content, owner, shared=False):
         try:
+            if shared:
+                shared = 'true'
+            else:
+                shared = 'false'
             encrypted_content = self.encrypt_file(content)
             with self.db_connection.cursor() as cur:
                 cur.execute("""
                     INSERT INTO documents 
-                    (filename, content_encrypted, content_type, file_size, owner)
-                    VALUES (%s, %s, %s, %s, %s)
+                    (filename, content_encrypted, content_type, file_size, owner, shared)
+                    VALUES (%s, %s, %s, %s, %s, %s)
                     RETURNING id
                 """, (
                     filename,
                     encrypted_content,
                     self._get_content_type(filename),
                     len(content),
-                    owner
+                    owner,
+                    shared
                 ))
                 doc_id = cur.fetchone()[0]
                 self.db_connection.commit()
@@ -104,6 +109,24 @@ class DocumentService:
                 WHERE owner = %s
                 ORDER BY created_at DESC
             """, (user,))
+            return cur.fetchall()
+    def list_shared_documents(self):
+        with self.db_connection.cursor() as cur:
+            cur.execute("""
+                SELECT id, filename, file_size, created_at, shared, owner 
+                FROM documents 
+                WHERE shared = true
+                ORDER BY created_at DESC
+            """)
+            return cur.fetchall()
+        
+    def list_all_documents(self):
+        with self.db_connection.cursor() as cur:
+            cur.execute("""
+                SELECT id, filename, file_size, created_at, shared, owner 
+                FROM documents
+                ORDER BY created_at DESC
+            """)
             return cur.fetchall()
         
         '''cur.execute("""
