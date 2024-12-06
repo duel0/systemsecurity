@@ -21,8 +21,8 @@ Session(app)
 
 conn = psycopg2.connect(
     dbname="docsecure",
-    user="v-root-app-role-PWPZ4v2x4w5oF1sSfeJQ-1733256740",  # username da Vault
-    password="jpvvVQAPYB1-vEmEQ1Pb",              # password da Vault
+    user="v-root-app-role-1Tn1kv5jJwqlK0LKiqMI-1733320689",  # username da Vault
+    password="S-zcBrstI2hAwhDb0mrE",              # password da Vault
     host="localhost",
     sslmode="disable",
     gsslib=None
@@ -32,7 +32,7 @@ conn = psycopg2.connect(
 # vault server -dev
 doc_service = DocumentService(
     vault_url='http://127.0.0.1:8200',
-    vault_token='hvs.wezU1GaPdUED6RcapAPJIFHi',
+    vault_token='hvs.widB6VzBfXBRSzOz7bsl6ZmL',
     db_connection=conn
 )
 
