@@ -8,45 +8,73 @@ import psycopg2
 import requests
 import jwt              # per gestire i Json Web Token
 import logging          # gestione del debugging
-
+from vault_setup import VaultTokenManager
+from getpass import getpass
+from key_security import KeySecurityManager
 
 ###### ###### ###### ###### ###### ###### ###### ###### ###### ###### ###### ###### ###### ###### 
 ###### ###### ###### ######           WEB APP CONFIGURATION           ###### ###### ###### ###### 
 ###### ###### ###### ###### ###### ###### ###### ###### ###### ###### ###### ###### ###### ###### 
 
 # creazione istanza app by Flask
+
+
+
+
 app = Flask(__name__)
 app.config['SESSION_TYPE'] = "filesystem"                           # la sessione deve essere memorizzata su filesystem (cioè in una cartella del progetto)
 Session(app)
 
-conn = psycopg2.connect(
-    dbname="docsecure",
-    user="v-root-app-role-1Tn1kv5jJwqlK0LKiqMI-1733320689",  # username da Vault
-    password="S-zcBrstI2hAwhDb0mrE",              # password da Vault
-    host="localhost",
-    sslmode="disable",
-    gsslib=None
-)
 
-# Inizializza il service
-# vault server -dev
+vtmanager = VaultTokenManager()
+
+try:
+    vault_name = input("Enter the name of the Vault instance: ")
+    password = getpass("Enter the password to decrypt the Vault token: ")
+    vault_token = vtmanager.load_vault_credentials(vault_name, password)
+    print("\nVault token loaded successfully.")
+        
+except Exception as e:
+    print(f"\nError: {str(e)}")
+
+
 doc_service = DocumentService(
-    vault_url='http://127.0.0.1:8200',
-    vault_token='hvs.widB6VzBfXBRSzOz7bsl6ZmL',
-    db_connection=conn
+    vault_url="http://127.0.0.1:8200",
+    vault_token=vault_token,
+    db_connection=None
 )
 
+try:
+    db_creds = doc_service.vault_client.read('database/creds/app-role')
+    conn = psycopg2.connect(
+        dbname=db_creds['data']['dbname'],
+        user=db_creds['data']['username'],  
+        password=db_creds['data']['password'],              
+        host=db_creds['data']['localhost'],
+        sslmode=db_creds['data']['sslmode'],
+        gsslib=None
+    )
+    doc_service.db_connection = conn
+except:
+    print("Error reading database credentials from Vault")
 
-logging.basicConfig(level=logging.DEBUG)  # Basic logging configuration
+
+logging.basicConfig(level=logging.DEBUG)  
 
 
-keycloak_server_url = 'http://localhost:8081'               # Si potrebbe definire un dominio nuovo (invece che sul localhost) e utilizzare cerrtificati SSL per garantire la sicurezza
-realm_name = 'AlFrescoRealm'
-client_id = 'AlFrescoClient'
-client_secret = "D4gLfeTOKkivPAy5kQPGrDxgyJVnDRv6"          # Preso da keycloak (possibile integrazione con vault per salvarlo in modo sicuro)                          
-redirect_uri = 'http://localhost:5173'                     
 
+secret = doc_service.vault_client.secrets.kv.v2.read_secret_version(
+    mount_point="keycloak",  
+    path="config"            
+)
 
+keycloak_config = secret['data']['data']
+    
+keycloak_server_url = keycloak_config['server_url']
+realm_name = keycloak_config['realm_name']
+client_id = keycloak_config['client_id']
+client_secret = keycloak_config['client_secret']
+redirect_uri = keycloak_config['redirect_uri']
 
 # Homepage
 @app.route('/')
@@ -193,7 +221,7 @@ def my_logout():
         end_session_endpoint = f"{keycloak_server_url}/realms/{realm_name}/protocol/openid-connect/logout"
 
         id_token = session['user']['id_token']        
-        redirect_uri = 'https://localhost:5173/'
+        redirect_uri = 'http://localhost:5173/'
         params = { 'client_id': client_id, 'id_token_hint': id_token, 'post_logout_redirect_uri': redirect_uri}
 
         session.clear()
@@ -207,13 +235,11 @@ def my_logout():
         return "Failed to logout. Please try again."
 
 
-###### ###### ###### ###### ###### ###### ###### ###### ###### ###### ###### ###### ###### ###### 
-###### ###### ###### ######                ADMIN PAGE                 ###### ###### ###### ###### 
-###### ###### ###### ###### ###### ###### ###### ###### ###### ###### ###### ###### ###### ###### 
+
+###### ###### ###### ###### ###### ###### ###### ###### ###### ###### ###### ###### ###### ######
 
 
-# Funzione per ottenere i ruoli dell'utente autenticato
-#  le info relative al ruolo sono inserite nell'access token, ma per poterle leggere bisogna prima decodificarlo
+
 def get_user_roles():
     if 'user' not in session:
         return []
@@ -229,8 +255,7 @@ def get_user_roles():
         return []
 
 
-# Funzione che accede alla pagina riservata agli admin
-#  a questa pagina è possibile accedere soltanto se si ha ruolo "AdminRole". 
+
 @app.route('/protected')
 def admin_page():
     if 'user' not in session:
@@ -240,8 +265,8 @@ def admin_page():
     roles = get_user_roles()
     logging.debug(f"Roles: {roles}")
 
-    # verifico il ruolo dell'utente
-    if 'AdminRole' in roles:
+    
+    if keycloak_config['protected_role'] in roles:
         documents = doc_service.list_all_documents()
         print(documents)
         return render_template('all_docs.html', username=username, documents=documents)
@@ -254,7 +279,7 @@ def admin_page():
     
 
 
-# Vorrei creare una route che si chiami my_docs e che mostri i documenti dell'utente loggato
+
 
 @app.route('/my_docs')
 def my_docs():
@@ -264,8 +289,9 @@ def my_docs():
     roles = get_user_roles()
     logging.debug(f"Roles: {roles}")
 
-    # verifico il ruolo dell'utente
-    if 'UserRole' in roles or 'AdminRole' in roles:
+    
+    allowlist = keycloak_config['mydocs_roles'].split('+')
+    if any(role in roles for role in allowlist):
         documents = doc_service.list_documents(username)
         print(documents)
         return render_template('my_docs.html', username=username, documents=documents)
@@ -277,7 +303,8 @@ def shared():
         return "Access Denied: you are not logged in.", 403
     roles = get_user_roles()
     logging.debug(f"Roles: {roles}")
-    if 'UserRole' in roles or 'AdminRole' in roles:
+    allowlist = keycloak_config['shared_roles'].split('+')
+    if any(role in roles for role in allowlist):
         username = session['user']['username']  
         documents = doc_service.list_shared_documents()
         print(documents)
@@ -290,15 +317,16 @@ def download_doc(doc_id):
         return "Access Denied: you are not logged in.", 403
     roles = get_user_roles()
     logging.debug(f"Roles: {roles}")
-    if 'UserRole' in roles or 'AdminRole' in roles:
+    allowlist = keycloak_config['download_roles'].split('+')
+    if any(role in roles for role in allowlist):
         username = session['user']['username']
         doc = doc_service.get_document(doc_id, username)
-        # come faccio a salvare doc in un file e poi farlo scaricare?
+        
         with open(f'/Users/balassone/Downloads/{doc_id}.pdf', 'wb') as f:
             f.write(doc['content'])
         return redirect(url_for('my_docs'))
 
-### DA TESTARE
+
 
 @app.route('/upload', methods=['GET', 'POST'])
 def upload():
@@ -306,9 +334,10 @@ def upload():
         return "Access Denied: you are not logged in.", 403
     roles = get_user_roles()
     logging.debug(f"Roles: {roles}")
-    if 'UserRole' in roles or 'AdminRole' in roles:
+    allowlist = keycloak_config['upload_roles'].split('+')
+    if any(role in roles for role in allowlist):
         if request.method == 'POST':
-            # Check if a file is included in the request
+            
             if 'file' not in request.files or request.files['file'].filename == '':
                 flash('No file selected.')
                 return redirect(request.url)
@@ -316,9 +345,9 @@ def upload():
             file = request.files['file']
             filename = file.filename
             content = file.read()
-            username = session['user']['username']  # Assuming session contains user data
+            username = session['user']['username']  
 
-            # Determine if the document is shared
+            
             shared = 'shared' in request.form and request.form['shared'] == 'on'
             try:
                 doc_service.store_document(filename, content, username, shared=shared)
@@ -332,6 +361,13 @@ def upload():
 
     
 
-    
+
 if __name__ == '__main__':
-    app.run(host='127.0.0.1', port=5173, debug=True)
+    sslkey = KeySecurityManager()
+    #sslkeypass = getpass("Enter the password to decrypt the SSL private key: ")
+    key_data = sslkey.retrieve_key('user',keycloak_config['ssl_pass'])
+    if key_data:
+        save_path = 'localhost.key'
+        with open(save_path, 'wb') as f:
+            f.write(key_data)
+    app.run(host='127.0.0.1', port=5173, debug=True,ssl_context=('localhost.crt', 'localhost.key'))

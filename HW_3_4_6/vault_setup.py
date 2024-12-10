@@ -1,155 +1,275 @@
 import os
-import subprocess
-import time
-import hvac
+import base64
 import json
-import psycopg2
-from typing import Tuple
+import datetime
+from getpass import getpass
+from cryptography.fernet import Fernet, InvalidToken
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
-class VaultManager:
-    def __init__(self):
-        self.vault_process = None
-        self.root_token = None
-        self.client = None
-        self.db_credentials = None
+class VaultTokenManager:
+    def __init__(self, base_dir=None):
+        """
+        Initialize the VaultTokenManager
+        :param base_dir: Optional base directory for storing secure vault credentials
+        """
+        if base_dir:
+            self.vault_dir = os.path.join(base_dir, "secure_vault")
+        else:
+            self.vault_dir = "secure_vault"
         
-    def start_vault(self) -> None:
-        """Avvia Vault in modalità dev e cattura il root token"""
-        # Avvia vault server -dev in background
-        self.vault_process = subprocess.Popen(
-            ['vault', 'server', '-dev'],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            universal_newlines=True
-        )
-        
-        # Attendi che Vault si avvii e cattura il Root Token
-        for line in iter(self.vault_process.stderr.readline, ''):
-            if 'Root Token:' in line:
-                self.root_token = line.split('Root Token: ')[1].strip()
-                break
-        print ("Root Token: ", self.root_token)
-        # Imposta variabile d'ambiente
-        os.environ['VAULT_TOKEN'] = self.root_token
-        
-        # Attendi che Vault sia pronto
-        time.sleep(2)
-        
-        # Inizializza client hvac
-        self.client = hvac.Client(url='http://127.0.0.1:8200', token=self.root_token)
+        self.config_file = os.path.join(self.vault_dir, "config.json")
+        self.vault_env_file = os.path.join(self.vault_dir, ".vault_env")
+        self.initialize_security_directory()
 
-    def setup_vault(self) -> None:
-        """Configura Transit e Database engines"""
-        # Abilita Transit Engine
+    def initialize_security_directory(self):
+        """Initialize the secure directory for vault credentials"""
         try:
-            self.client.sys.enable_secrets_engine(
-                backend_type='transit',
-                path='transit'
-            )
-        except hvac.exceptions.InvalidRequest:
-            print("Transit engine già abilitato")
-
-        # Crea chiave per documenti
-        self.client.secrets.transit.create_key(name='document-key')
-        
-        # Abilita Database Engine
-        try:
-            self.client.sys.enable_secrets_engine(
-                backend_type='database',
-                path='database'
-            )
-        except hvac.exceptions.InvalidRequest:
-            print("Database engine già abilitato")
-
-        # Configura connessione PostgreSQL
-        self.client.write(
-            path='database/config/docsecure',
-            plugin_name='postgresql-database-plugin',
-            allowed_roles='app-role',
-            connection_url='postgresql://{{username}}:{{password}}@localhost:5432/docsecure?sslmode=disable',
-            username='docsecure_app',
-            password='your_password_here'  # Sostituisci con password corretta
-        )
-
-        # Configura ruolo database
-        self.client.write(
-            path='database/roles/app-role',
-            db_name='docsecure',
-            creation_statements="""
-                CREATE ROLE "{{name}}" WITH LOGIN PASSWORD '{{password}}' 
-                VALID UNTIL '{{expiration}}';
-                GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public 
-                TO "{{name}}";
-                GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "{{name}}";
-            """,
-            default_ttl='1h',
-            max_ttl='24h'
-        )
-
-    def get_db_credentials(self) -> Tuple[str, str]:
-        """Ottiene credenziali temporanee per il database"""
-        response = self.client.read('database/creds/app-role')
-        if response and 'data' in response:
-            self.db_credentials = {
-                'username': response['data']['username'],
-                'password': response['data']['password']
-            }
-            return self.db_credentials['username'], self.db_credentials['password']
-        return None, None
-
-    def test_db_connection(self) -> bool:
-        """Testa la connessione al database con le credenziali temporanee"""
-        if not self.db_credentials:
-            return False
-        
-        try:
-            conn = psycopg2.connect(
-                dbname="docsecure",
-                user=self.db_credentials['username'],
-                password=self.db_credentials['password'],
-                host="localhost",
-                sslmode="disable"
-            )
-            conn.close()
+            if not os.path.exists(self.vault_dir):
+                os.makedirs(self.vault_dir, mode=0o700)  # Only owner can access
+                
+                # Initialize the configuration file
+                config = {
+                    "salt": base64.b64encode(os.urandom(16)).decode('utf-8'),
+                    "vaults": {}
+                }
+                self._save_config(config)
+            
+            # Verify/correct permissions
+            os.chmod(self.vault_dir, 0o700)
+            if os.path.exists(self.config_file):
+                os.chmod(self.config_file, 0o600)
+            
             return True
         except Exception as e:
-            print(f"Errore connessione DB: {e}")
+            print(f"Error initializing secure directory: {str(e)}")
             return False
 
-    def cleanup(self):
-        """Pulisce le risorse"""
-        if self.vault_process:
-            self.vault_process.terminate()
-            self.vault_process.wait()
+    def _save_config(self, config):
+        """Save configuration securely"""
+        try:
+            with open(self.config_file, 'w') as f:
+                json.dump(config, f, indent=4)
+            os.chmod(self.config_file, 0o600)
+            return True
+        except Exception as e:
+            print(f"Error saving configuration: {str(e)}")
+            return False
+
+    def _load_config(self):
+        """Load configuration"""
+        try:
+            with open(self.config_file, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"Error loading configuration: {str(e)}")
+            return None
+
+    def _get_encryption_key(self, password):
+        """
+        Generate an encryption key from the password
+        :param password: Password to derive the key from
+        :return: Fernet encryption object
+        """
+        config = self._load_config()
+        if not config:
+            raise ValueError("Configuration not found")
+        
+        salt = base64.b64decode(config['salt'].encode('utf-8'))
+        
+        kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=salt,
+            iterations=100000,
+        )
+        key = base64.urlsafe_b64encode(kdf.derive(password.encode()))
+        return Fernet(key)
+
+    def protect_vault_credentials(self, vault_name, vault_token, password):
+        """
+        Protect Vault token with encryption
+        :param vault_name: Name to identify the Vault instance
+        :param vault_token: Vault authentication token
+        :param password: Password for protecting the credentials
+        :return: Boolean indicating success
+        """
+        try:
+            # Encrypt the Vault token
+            fernet = self._get_encryption_key(password)
+            encrypted_token = fernet.encrypt(vault_token.encode())
+            
+            # Write only the encrypted token to .vault_env file
+            with open(self.vault_env_file, 'w') as f:
+                f.write(encrypted_token.decode('utf-8'))
+            os.chmod(self.vault_env_file, 0o600)
+
+            # Update config file
+            config = self._load_config()
+            if not config:
+                return False
+
+            config['vaults'][vault_name] = {
+                'created': datetime.datetime.now().isoformat(),
+                'last_accessed': datetime.datetime.now().isoformat()
+            }
+            return self._save_config(config)
+
+        except Exception as e:
+            print(f"Error protecting Vault credentials: {str(e)}")
+            return False
+
+    def load_vault_credentials(self, vault_name, password):
+        """
+        Load and decrypt Vault token
+        :param vault_name: Name of the Vault instance
+        :param password: Password to decrypt credentials
+        :return: Decrypted Vault token or None
+        """
+        try:
+            if not os.path.exists(self.vault_env_file):
+                raise FileNotFoundError("Vault environment file not found")
+
+            # Read encrypted file
+            with open(self.vault_env_file, 'r') as f:
+                encrypted_token = f.read().strip()
+
+            # Decrypt token
+            fernet = self._get_encryption_key(password)
+            decrypted_token = fernet.decrypt(encrypted_token.encode('utf-8')).decode()
+
+            # Update last accessed time in config
+            config = self._load_config()
+            if config and vault_name in config['vaults']:
+                config['vaults'][vault_name]['last_accessed'] = datetime.datetime.now().isoformat()
+                self._save_config(config)
+
+            return decrypted_token
+
+        except (InvalidToken, ValueError):
+            print("Decryption failed. Incorrect password or corrupted data.")
+            return None
+        except Exception as e:
+            print(f"Error loading Vault credentials: {str(e)}")
+            return None
+
+    def list_vault_credentials(self):
+        """
+        List all stored Vault credentials
+        :return: Dictionary with Vault credential information
+        """
+        config = self._load_config()
+        return config['vaults'] if config else {}
+
+    def delete_vault_credentials(self, vault_name):
+        """
+        Delete stored Vault credentials
+        :param vault_name: Name of the Vault instance to delete
+        :return: Boolean indicating success
+        """
+        try:
+            # Remove .vault_env file
+            if os.path.exists(self.vault_env_file):
+                os.remove(self.vault_env_file)
+
+            # Update config
+            config = self._load_config()
+            if config and vault_name in config['vaults']:
+                del config['vaults'][vault_name]
+                return self._save_config(config)
+            return True
+
+        except Exception as e:
+            print(f"Error deleting Vault credentials: {str(e)}")
+            return False
+
+def print_menu():
+    """Print the main menu"""
+    print("\n=== Secure Vault Credentials Manager ===")
+    print("1. Protect Vault Token")
+    print("2. Load Vault Token")
+    print("3. List Stored Vault Tokens")
+    print("4. Delete Vault Credentials")
+    print("0. Exit")
+    print("================================")
 
 def main():
-    vault_mgr = VaultManager()
-    try:
-        print("Avvio Vault...")
-        vault_mgr.start_vault()
-        print(f"Root Token: {vault_mgr.root_token}")
+    vault_manager = VaultTokenManager()
+    
+    while True:
+        print_menu()
+        choice = input("Select an option (0-4): ")
         
-        print("\nConfigurazione Vault...")
-        vault_mgr.setup_vault()
-        
-        print("\nOttenimento credenziali DB...")
-        username, password = vault_mgr.get_db_credentials()
-        print(f"Username: {username}")
-        print(f"Password: {password}")
-        
-        print("\nTest connessione DB...")
-        if vault_mgr.test_db_connection():
-            print("Connessione DB riuscita!")
-        else:
-            print("Errore connessione DB")
+        if choice == "0":
+            print("\nExiting the program...")
+            break
             
-        # Mantieni Vault in esecuzione
-        input("\nPremi Enter per terminare...")
+        elif choice == "1":
+            # Protect new Vault token
+            vault_name = input("Enter a name for this Vault instance: ")
+            vault_token = input("Enter Vault authentication token: ")
+            
+            password = getpass("Enter a password to protect the token: ")
+            confirm_password = getpass("Confirm the password: ")
+            
+            if password != confirm_password:
+                print("Passwords do not match!")
+                continue
+            
+            if vault_manager.protect_vault_credentials(vault_name, vault_token, password):
+                print("\nVault token protected successfully!")
+            else:
+                print("\nError protecting Vault token")
+                
+        elif choice == "2":
+            # Load Vault token
+            try:
+                vault_name = input("Enter the name of the Vault instance: ")
+                password = getpass("Enter the password to decrypt the Vault token: ")
+                vault_token = vault_manager.load_vault_credentials(vault_name, password)
+                
+                if vault_token:
+                    print(vault_token)  # Masked for security
+                else:
+                    print("\nFailed to load Vault token")
+                    
+            except Exception as e:
+                print(f"\nError: {str(e)}")
+                
+        elif choice == "3":
+            # List stored Vault credentials
+            stored_vaults = vault_manager.list_vault_credentials()
+            if stored_vaults:
+                print("\nStored Vault Credentials:")
+                for name, info in stored_vaults.items():
+                    print(f"\nName: {name}")
+                    print(f"Created: {info['created']}")
+                    print(f"Last Accessed: {info['last_accessed']}")
+            else:
+                print("\nNo Vault credentials found")
+                
+        elif choice == "4":
+            # Delete Vault credentials
+            vault_name = input("Enter the name of the Vault instance to delete: ")
+            
+            confirm = input(f"Are you sure you want to delete credentials for {vault_name}? (y/N): ")
+            if confirm.lower() == 'y':
+                if vault_manager.delete_vault_credentials(vault_name):
+                    print(f"\nVault credentials for {vault_name} deleted successfully!")
+                else:
+                    print("\nError deleting Vault credentials")
+            else:
+                print("\nOperation cancelled")
+                
+        else:
+            print("\nInvalid option!")
         
-    except Exception as e:
-        print(f"Errore: {e}")
-    finally:
-        vault_mgr.cleanup()
+        input("\nPress ENTER to continue...")
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n\nProgram terminated by user")
+    except Exception as e:
+        print(f"\nUnexpected error: {str(e)}")
