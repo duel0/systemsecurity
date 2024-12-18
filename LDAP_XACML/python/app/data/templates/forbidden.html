@@ -1,0 +1,68 @@
+{% extends 'home.html' %}
+
+{% block container %}
+  <style>
+    .forbidden-container {
+      max-width: 600px;
+      margin: 100px auto;
+      padding: 30px;
+      background: #f8d7da;
+      border: 1px solid #f5c6cb;
+      border-radius: 10px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      text-align: center;
+    }
+
+    .forbidden-container h1 {
+      color: #721c24;
+      font-weight: bold;
+      font-size: 36px;
+      margin-bottom: 20px;
+    }
+
+    .forbidden-container p {
+      color: #856404;
+      font-size: 20px;
+      margin-bottom: 30px;
+    }
+
+    .forbidden-icon {
+      font-size: 100px;
+      color: #721c24;
+      margin-bottom: 20px;
+    }
+
+    .back-btn {
+      font-size: 18px;
+      padding: 10px 20px;
+      background-color: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+      border-radius: 5px;
+      text-decoration: none;
+    }
+
+    .back-btn:hover {
+      background-color: #f1b0b7;
+      color: #721c24;
+      border-color: #f1b0b7;
+    }
+
+    .back-btn:focus {
+      outline: none;
+    }
+
+    .emoji {
+      font-size: 80px;
+    }
+  </style>
+
+  <div class="forbidden-container">
+    <div class="forbidden-icon emoji">
+      🚫🩺
+    </div>
+    <h1>Accesso Negato</h1>
+    <p>Ops, sembra che tu non abbia il permesso per accedere a questa pagina. 🏥</p>
+    <a href="{{ url_for('auth.home') }}" class="back-btn">Torna alla Home</a>
+  </div>
+{% endblock %}

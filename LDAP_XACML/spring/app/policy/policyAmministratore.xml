@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Policy xmlns="urn:oasis:names:tc:xacml:1.0:policy" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+PolicyId="AmministratorePolicy"
+RuleCombiningAlgId="urn:oasis:names:tc:xacml:1.0:rule-combining-algorithm:permit-overrides">
+
+<Description>
+Disciplina l'accesso alle risorse con path : http://localhost:1200/private/.* : esse possono essere accedute con operazione di "view" solo dagli utenti con ruolo "amministratore" ;la decisione e' deny in tutti gli altri casi
+</Description>
+
+
+<Target>
+ <Subjects>
+  <AnySubject/>
+ </Subjects>
+ <Resources>
+  <Resource>
+   <ResourceMatch MatchId="urn:oasis:names:tc:xacml:1.0:function:regexp-string-match">
+     <ResourceAttributeDesignator DataType="http://www.w3.org/2001/XMLSchema#string"
+             AttributeId="urn:oasis:names:tc:xacml:1.0:resource:resource-id"/>
+<AttributeValue DataType="http://www.w3.org/2001/XMLSchema#string">http://localhost:1200/private/.*</AttributeValue>
+     
+   </ResourceMatch>
+  </Resource>
+ </Resources>
+ <Actions>
+  <Action>
+  <ActionMatch MatchId="urn:oasis:names:tc:xacml:1.0:function:string-equal">
+  <AttributeValue
+    DataType="http://www.w3.org/2001/XMLSchema#string">GET</AttributeValue>
+    <ActionAttributeDesignator DataType="http://www.w3.org/2001/XMLSchema#string"
+    AttributeId="urn:oasis:names:tc:xacml:1.0:action:action-id"/>
+  </ActionMatch>
+ </Action>
+</Actions>
+</Target>
+
+<Rule RuleId="PermitAmministratore" Effect="Permit" >
+<Target>
+<Subjects>
+<Subject>
+<SubjectMatch MatchId="urn:oasis:names:tc:xacml:1.0:function:string-equal">
+<AttributeValue
+DataType="http://www.w3.org/2001/XMLSchema#string">admin</AttributeValue>
+<SubjectAttributeDesignator DataType="http://www.w3.org/2001/XMLSchema#string" AttributeId="role"/>
+</SubjectMatch>
+</Subject>
+</Subjects>
+
+<Resources>
+<AnyResource/>
+</Resources>
+
+<Actions>
+<AnyAction/>
+</Actions>
+</Target>
+</Rule>
+<Rule RuleId="DenyOtherRoles" Effect="Deny"/>
+
+</Policy>

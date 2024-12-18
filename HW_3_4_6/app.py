@@ -47,11 +47,11 @@ doc_service = DocumentService(
 try:
     db_creds = doc_service.vault_client.read('database/creds/app-role')
     conn = psycopg2.connect(
-        dbname=db_creds['data']['dbname'],
+        dbname='docsecure',
         user=db_creds['data']['username'],  
         password=db_creds['data']['password'],              
-        host=db_creds['data']['localhost'],
-        sslmode=db_creds['data']['sslmode'],
+        host='localhost',
+        sslmode='disable',
         gsslib=None
     )
     doc_service.db_connection = conn
@@ -272,7 +272,7 @@ def admin_page():
         return render_template('all_docs.html', username=username, documents=documents)
     
     else:
-        return "Access Denied: you are not an admin.", 403
+        return render_template('unauthorized.html'), 403
 
 
     
@@ -285,7 +285,7 @@ def admin_page():
 def my_docs():
     if 'user' not in session:
         return "Access Denied: you are not logged in.", 403
-    username = session['user']['username']  # Assuming session['user'] contains 'username'
+    username = session['user']['username'] 
     roles = get_user_roles()
     logging.debug(f"Roles: {roles}")
 
@@ -364,7 +364,6 @@ def upload():
 
 if __name__ == '__main__':
     sslkey = KeySecurityManager()
-    #sslkeypass = getpass("Enter the password to decrypt the SSL private key: ")
     key_data = sslkey.retrieve_key('user',keycloak_config['ssl_pass'])
     if key_data:
         save_path = 'localhost.key'

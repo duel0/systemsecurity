@@ -1,10 +1,20 @@
 {
-    "salt": "NqoiUlyrKIgq5SDybMUTrA==",
+    "salt": "aTjmGs1jS2rENSnWAUY+Kw==",
     "keys": {
         "root_ca": {
             "file": "root_ca.enc",
-            "created": "2024-11-27T15:16:14.282383",
-            "last_accessed": "2024-11-27T15:16:14.282391"
+            "created": "2024-12-13T17:13:55.214604",
+            "last_accessed": "2024-12-13T17:24:30.056598"
+        },
+        "intermediate_ca": {
+            "file": "intermediate_ca.enc",
+            "created": "2024-12-13T17:24:40.630683",
+            "last_accessed": "2024-12-13T17:37:57.254920"
+        },
+        "client_cert": {
+            "file": "client_cert.enc",
+            "created": "2024-12-13T17:38:39.664843",
+            "last_accessed": "2024-12-13T17:39:15.564777"
         }
     }
 }
